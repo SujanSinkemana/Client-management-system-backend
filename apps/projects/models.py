@@ -4,6 +4,12 @@ from apps.customers.models import Customer
 from django.core.validators import FileExtensionValidator
 from apps.employes.models import Employee
 from django.utils import timezone
+from django.core.exceptions import ValidationError
+
+def validate_non_negative(value):
+    if value < 0:
+        raise ValidationError("Value must be non-negative.")
+
 
 class Project(models.Model):
     PRIORITY_CHOICES = [('high', 'High'), ('medium', 'Medium'), ('low', 'Low')]
@@ -16,8 +22,8 @@ class Project(models.Model):
     customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='client_projects')
     
     # Financial Fields
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    remaining_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2,validators=[validate_non_negative])
+    remaining_amount = models.DecimalField(max_digits=12, decimal_places=2,validators=[validate_non_negative])
     
     # Timeline Fields
     start_date = models.DateField()

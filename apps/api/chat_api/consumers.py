@@ -5,16 +5,20 @@ from django.contrib.auth.models import AnonymousUser
 from rest_framework_simplejwt.tokens import AccessToken
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
-from apps.accounts.models import CustomUser  # Import your user model
+from apps.accounts.models import CustomUser  
 from .models import Conversation, EncryptedMessage
 
 class SecureChatConsumer(AsyncWebsocketConsumer):
     async def connect(self):
+        print("Connected")
         """ Authenticate user and establish WebSocket connection """
         self.conversation_id = self.scope['url_route']['kwargs']['conversation_id']
+        print(f"Extracted conversation_id: {self.conversation_id} (type: {type(self.conversation_id)})")
         self.user = await self.authenticate_user()
 
         if self.user.is_anonymous:
+            print("User is anonymous, closing connection")
+
             await self.close()  # Reject connection if unauthorized
             return
 
@@ -23,9 +27,11 @@ class SecureChatConsumer(AsyncWebsocketConsumer):
                 self.room_group_name,
                 self.channel_name
             )
+            print("User has access to the conversation, accepting connection")
             await self.accept()
         else:
-            await self.close()
+            print("User does NOT have access to the conversation, closing connection")
+            await self.close(code=403)
 
     async def disconnect(self, close_code):
         """ Remove user from chat group when disconnected """
@@ -64,26 +70,55 @@ class SecureChatConsumer(AsyncWebsocketConsumer):
         """ Authenticate user using JWT from headers (Secure method) """
         try:
             headers = dict(self.scope["headers"])
+            print("Received headers:", headers)
             token = headers.get(b'authorization', b'').decode()
-            if not token.startswith("Bearer "):
-                return AnonymousUser()
+            print("Received token:", token)
+            if token.startswith("Bearer "):
+                jwt_token = token.split("Bearer ")[1]
+            else:
+                jwt_token = token 
             
-            jwt_token = token.split("Bearer ")[1]
             decoded_token = AccessToken(jwt_token)
             user_id = decoded_token["user_id"]
+            print("User ID:", user_id)
             return CustomUser.objects.get(id=user_id)
-        except Exception:
+        except Exception as e:
+            print(f"Authentication error: {str(e)}")
             return AnonymousUser()
 
+    # @database_sync_to_async
+    # def validate_conversation_access(self):
+    #     """ Check if user is part of the conversation """
+    #     if self.user.is_anonymous:
+    #         return False  # Reject anonymous users
+
+    #     return Conversation.objects.filter(
+    #         id=self.conversation_id
+    #     ).filter(
+    #         Q(client=self.user) | Q(representative=self.user)
+    #     ).exists()
+        # return Conversation.objects.filter(
+        #         id=self.conversation_id,
+        #         models.Q(client=self.user) | models.Q(representative=self.user).exists()
+        #     )
     @database_sync_to_async
     def validate_conversation_access(self):
-        """ Check if user is part of the conversation """
+        print(type(self.user))
         if self.user.is_anonymous:
-            return False  # Reject anonymous users
+            print("User is anonymous")
+            return False
+        try:
+            conv_id = int(self.conversation_id)
+        except ValueError:
+            print(f"Invalid conversation_id: {self.conversation_id}")
+            return False
 
-        return Conversation.objects.filter(
+        exists = Conversation.objects.filter(
+            id=conv_id).filter(
             Q(client=self.user) | Q(representative=self.user)
         ).exists()
+        print(f"Validating conversation access for conversation {conv_id} and user {self.user}: {exists}")
+        return exists
 
     @database_sync_to_async
     def save_message(self, content):
@@ -96,3 +131,9 @@ class SecureChatConsumer(AsyncWebsocketConsumer):
         message.set_content(content)
         message.save()
         return message
+
+# class SecureChatConsumer(AsyncWebsocketConsumer):
+#     async def connect(self):
+#         print("connected")
+#         await self.accept()
+
